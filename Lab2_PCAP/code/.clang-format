@@ -1,0 +1,22 @@
+# Define the base style to inherit from
+BasedOnStyle: LLVM
+
+# Language specific settings (Defaults to C++ if omitted)
+Language: Cpp
+
+# Set the column limit before code wraps
+ColumnLimit: 100
+
+# Indentation rules
+IndentWidth: 4
+UseTab: Never
+
+# Bracket and brace spacing rules
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: Empty
+
+# Pointer and reference alignment (Left, Right, or Middle)
+PointerAlignment: Left
+
+# Clean up include statements
+SortIncludes: CaseSensitive
