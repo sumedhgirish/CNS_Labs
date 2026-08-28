@@ -1,7 +1,9 @@
 #include <assert.h>
+#include <ctype.h>
 #include <pcap/pcap.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <arpa/inet.h>
 #include <net/ethernet.h>
@@ -21,6 +23,14 @@
 PACKET(eth_t, struct ether_header);
 PACKET(ip_t, struct iphdr);
 PACKET(tcp_t, struct tcphdr);
+
+void make_safe(u_char* payload, int payload_len) {
+    for (int idx = 0; idx < payload_len; ++idx) {
+        if (!isprint(payload[idx])) {
+            payload[idx] = '.';
+        }
+    }
+}
 
 void print_packet(u_char* user, const struct pcap_pkthdr* header, const u_char* packet) {
     eth_t* link_pkt = (eth_t*)packet;
@@ -43,6 +53,8 @@ void print_packet(u_char* user, const struct pcap_pkthdr* header, const u_char* 
 
         if (ip_pkt->header.protocol == IPPROTO_TCP) {
             tcp_t* tcp_pkt = (tcp_t*)ip_pkt->data;
+
+            make_safe(tcp_pkt->data, ntohs(ip_pkt->header.tot_len - sizeof(ip_t) - sizeof(tcp_t)));
 
             printf(" / TCP(");
             printf("src_port: %d, ", tcp_pkt->header.th_sport);
@@ -69,13 +81,26 @@ void apply_filter(pcap_t* handle, char* filter_exp) {
     LOG_ON_ERROR(pcap_setfilter(handle, &fp), handle);
 }
 
+char* find_bridge_interface(pcap_if_t* alldevsp) {
+    char* bridge_iface = NULL;
+
+    int idx = 0;
+    while ((bridge_iface = alldevsp[idx].name) != NULL) {
+        if (strncmp(bridge_iface, "br-", 3)) {
+            return bridge_iface;
+        }
+    }
+
+    return NULL;
+}
+
 int main(int argc, const char* argv[]) {
     pcap_if_t* alldevsp = NULL;
     char errbuf[PCAP_ERRBUF_SIZE];
 
     pcap_findalldevs(&alldevsp, errbuf);
 
-    char* default_dev = alldevsp[0].name;
+    char* default_dev = find_bridge_interface(alldevsp);
     printf("Using device %s.\n", default_dev);
 
     pcap_t* handle = pcap_open_live("eth0", 262144, 1, 1000, errbuf);
