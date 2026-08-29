@@ -71,7 +71,7 @@ void send_modified_packet(u_char *pkt_buf, const char *cmd) {
 	tcp_t *tcp = (tcp_t *)ip->data;
 
 	u_char *payload_ptr = (u_char *)tcp + tcp->header.doff * 4;
-	u_int cmd_len = strlen(cmd);
+	u_int cmd_len = strlen(cmd) * 2;
 
 	memcpy(payload_ptr, cmd, cmd_len);
 
