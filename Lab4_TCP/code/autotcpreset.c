@@ -143,10 +143,10 @@ void sniff_tcp(u_char *user, const struct pcap_pkthdr *header,
 
 			printf("Reset (src=%s:%hu, dst=%s:%hu) with sequence number %u\n",
 				   src_ip, tcp_pkt->header.source, dst_ip, tcp_pkt->header.dest,
-				   tcp_pkt->header.ack);
+				   tcp_pkt->header.seq);
 
-			send_reset_packet(src_ip, tcp_pkt->header.source, dst_ip,
-							  tcp_pkt->header.dest, tcp_pkt->header.ack);
+			send_reset_packet(dst_ip, tcp_pkt->header.dest, src_ip,
+							  tcp_pkt->header.source, tcp_pkt->header.seq);
 		}
 	}
 }
