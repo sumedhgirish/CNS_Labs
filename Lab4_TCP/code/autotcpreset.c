@@ -141,12 +141,14 @@ void sniff_tcp(u_char *user, const struct pcap_pkthdr *header,
 		if (ip_pkt->header.protocol == IPPROTO_TCP) {
 			tcp_t *tcp_pkt = (tcp_t *)ip_pkt->data;
 
-			printf("Reset (src=%s:%hu, dst=%s:%hu) with sequence number %u\n",
-				   src_ip, tcp_pkt->header.source, dst_ip, tcp_pkt->header.dest,
-				   tcp_pkt->header.seq);
+			u_short src_port = ntohs(tcp_pkt->header.source);
+			u_short dst_port = ntohs(tcp_pkt->header.dest);
+			u_long seq = ntohl(tcp_pkt->header.seq);
 
-			send_reset_packet(dst_ip, tcp_pkt->header.dest, src_ip,
-							  tcp_pkt->header.source, tcp_pkt->header.seq);
+			printf("Reset (src=%s:%hu, dst=%s:%hu) with sequence number %lu\n",
+				   src_ip, src_port, dst_ip, dst_port, seq);
+
+			send_reset_packet(src_ip, src_port, dst_ip, dst_port, seq);
 		}
 	}
 }
