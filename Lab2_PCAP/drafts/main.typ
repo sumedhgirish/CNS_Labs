@@ -28,6 +28,11 @@ To start the containers, run:
 docker compose up
 ```
 
+#figure(
+  image("assets/20260828133849.png"),
+  caption: "Starting the docker image",
+)
+
 #pagebreak()
 
 = Tasks
@@ -414,6 +419,11 @@ int main(int argc, const char* argv[]) {
 
 ```
 
+#figure(
+  image("assets/20260828140012.png"),
+  caption: "Sniffing ICMP packets using PCAP in C",
+)
+
 #pagebreak()
 
 == ICMP Sniffer & Spoofer Implementation (`spoofer.c`)
@@ -618,7 +628,6 @@ int main(int argc, const char* argv[]) {
     destination MAC address does not match the attacker host's physical MAC or
     broadcast address.
 
-  *Observed Execution Behavior:*
   When Host A (`10.9.0.5`) pings Host B (`10.9.0.6`):
 
   - Mode `1`: Attacker sniffer logs ICMP packet flow between `10.9.0.5`
@@ -627,7 +636,7 @@ int main(int argc, const char* argv[]) {
     discarded in hardware; the sniffer logs zero frames.
 ]
 
-#question(title: [Question 4: IP Header Checksum in Raw Sockets])[
+#question(title: [IP Header Checksum in Raw Sockets])[
   Using raw socket programming, do you have to calculate the checksum for the IP header?
 ]
 
@@ -638,7 +647,7 @@ int main(int argc, const char* argv[]) {
   sockets, it is good practice and more reliable to do it ourselves.
 ]
 
-#question(title: [Question 5: Privilege Requirements for Raw Sockets])[
+#question(title: [Privilege Requirements for Raw Sockets])[
   Why do you need root privilege to run programs that use raw sockets? Where
   does the program fail if executed without root?
 ]
@@ -668,37 +677,30 @@ int main(int argc, const char* argv[]) {
 Executing `sniff` on the attacker host (`10.9.0.1`) while Host A (`10.9.0.5`)
 pings the gateway logs packet flows correctly:
 
-```text
-Using device eth0.
-IP(src_ip: 10.9.0.5, dst_ip: 10.9.0.1, proto: icmp)
-```
+
+#figure(
+  image("assets/20260828134309.png"),
+  caption: "Pinging `1.2.3.4` from user when attacker program is active",
+)
+
+#figure(
+  image("assets/20260828195829.png"),
+  caption: "Attacker view of spoofed packets",
+)
+
+#figure(
+  image("assets/20260828134415.png"),
+  caption: [Output of ping when attacker program is *inactive*],
+)
+
 
 = Task 2.1 C (Password Extraction)
+
 Telnet transmits data in plain unencrypted ASCII. By reading `tcp_pkt->data`,
 typed characters in authentication streams  appear directly in captured payload
 output.
 
-Executing `spooficmp` sends forged ICMP Echo Requests with a spoofed source
-address (`10.9.0.5`) toward target `8.8.8.8`:
-
-Host A (`10.9.0.5`) executes `ping 1.2.3.4` for a non-existent host address
-on the network:
-
-1. Attacker daemon captures `ICMP Echo Request` (`Type 8`) targeting `1.2.3.4`.
-2. Attacker synthesizes an `ICMP Echo Reply` (`Type 0`) setting source IP to
-  `1.2.3.4` and destination IP to `10.9.0.5`, recomputes ICMP/IP checksums,
-  and dispatches frame via raw socket.
-3. Host A terminal receives immediate reply:
-
-```text
-PING 1.2.3.4 (1.2.3.4) 56(84) bytes of data.
-64 bytes from 1.2.3.4: icmp_seq=1 ttl=64 time=0.412 ms
-64 bytes from 1.2.3.4: icmp_seq=2 ttl=64 time=0.389 ms
-...
-```
-
-Because docker containers dont have pcap library to dynamically link to and my
-host machine on linux doesnt connect to ethernet, demonstrating the telnet
-connection over ethernet specifically for the given exercieses is impossible.
-However I have executed equivatents for monitoring http traffic and checked that
-the output is sane.
+#figure(
+  image("assets/20260828202639.png"),
+  caption: "Discovering passwords via unencrypted packet flow in telnet. Read the characters coloumnwise below 'Password:' to find `dees` as the password",
+)
