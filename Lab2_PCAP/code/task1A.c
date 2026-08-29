@@ -85,7 +85,7 @@ char* find_bridge_interface(pcap_if_t* alldevsp) {
     char* bridge_iface = NULL;
 
     int idx = 0;
-    while ((bridge_iface = alldevsp[idx].name) != NULL) {
+    while ((bridge_iface = alldevsp[idx++].name) != NULL) {
         if (strncmp(bridge_iface, "br-", 3) == 0) {
             return bridge_iface;
         }
