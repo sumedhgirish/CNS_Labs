@@ -166,13 +166,15 @@ void apply_filter(pcap_t *handle, char *filter_exp) {
 }
 
 char *find_bridge_interface(pcap_if_t *alldevsp) {
-	char *bridge_iface = NULL;
+	pcap_if_t *current = alldevsp;
 
-	int idx = 0;
-	while ((bridge_iface = alldevsp[idx++].name) != NULL) {
-		if (strncmp(bridge_iface, "br-", 3) == 0) {
-			return bridge_iface;
+	while (current != NULL) {
+		if (current->name != NULL) {
+			if (strncmp(current->name, "br-", 3) == 0) {
+				return current->name;
+			}
 		}
+		current = current->next;
 	}
 
 	return NULL;
