@@ -15,7 +15,7 @@ class Task:
             if DNS in pkt and TARGET in pkt[DNS].qd.qname.decode("utf-8"):
                 print(pkt.summary())
 
-        _ = sniff(iface=ATTACKER_IFACE, prn=spoof_dns, filter="dns")
+        _ = sniff(iface=ATTACKER_IFACE, prn=spoof_dns, filter="port 53")
 
 
 if __name__ == "__main__":
