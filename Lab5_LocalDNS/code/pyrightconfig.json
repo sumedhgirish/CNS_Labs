@@ -1,0 +1,8 @@
+{
+    "venvPath": ".",
+    "venv": ".venv",
+    "typeCheckingMode": "basic",
+    "reportUnusedImport": "warning",
+    "reportUnusedVariable": "warning",
+    "reportWildcardImportFromLibrary": "none"
+}
